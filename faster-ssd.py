@@ -10,66 +10,66 @@ import tensorflow as tf
 import random
 import numpy as np
 from collections import deque
-sys.path.append('Net/')
-sys.path.append('Layer/')
-sys.path.append('Net/Layer/')
-from network import *
+from config import Param
 from hyperparameter import *
 from loss import *
+from Specific_net.inceptionv3_facenet import *
+from layers.rpn_anchor_target import *
 import datetime
 
 class framework():
 	def __init__(self,env,optimizeMethod='adam'):
 		self.optimizeMethod = optimizeMethod
 
+		self.Work_Param=Param("ZWW_face_detection_config_112inception_out8.json")
 
+		self.train_batch=32
+		self.val_batch=32
+		self.test_batch=1
+		self.input_image_size=[3,self.Work_Param.max_size,self.Work_Param.max_size]
+
+		self.rpn_variable=[]
+		self.rcnn_variable=[]
 		# Graph Related
 		self.graph = tf.Graph()
 		# 初始化
-		self.s,self.pi,self.vf,self.logstd, \
-		self.sample_action,self.ac_prob, \
-		self.all_weights,self.pg_loss,self.vf_loss,self.approxkl,self.clipfrac, \
-		self._train,self.pi_train,self.vf_train=self.define_graph()
+		self.train=self.faster_ssd()
 
 		config = tf.ConfigProto()
 		config.gpu_options.allow_growth=True
 		self.sess = tf.Session(graph=self.graph,config=config)
+		'''
 		if TRAIN:
 			self.writer = tf.summary.FileWriter('Graphview/', self.graph)
 		# 放在定义Graph之后，保存这张计算图
 		self.saver = tf.train.Saver(self.all_weights)
-
-
-	def define_graph(self):
 		'''
-		定义我的的计算图谱
+
+	def faster_ssd(self):
+		'''
+		定义faster-ssd的计算图谱
 		'''
 		with self.graph.as_default():
 			# Training computation.
-			self.A = tf.placeholder(tf.float32, [None,self.ac_space], 'action')
-			self.ADV = tf.placeholder(tf.float32, [None])
-			self.R = tf.placeholder(tf.float32, [None])
-			self.OLDNEGLOGPAC = tf.placeholder(tf.float32, [None])
-			self.OLDVPRED = tf.placeholder(tf.float32, [None])
-			self.LR = tf.placeholder(tf.float32, [])
-			self.CLIPRANGE = tf.placeholder(tf.float32, [])
-			self.Logstd=tf.placeholder(tf.float32, [1, self.ac_space])
-			s,pi,vf,logstd,weights,summaries,pi_params,vf_params=self.DPPO.model(net_name='DPPO', reuse=False)
+			self.small_rpn_train=InceptionV3_facenet_112(batch_seize=train_batch,num_channels=self.input_image_size[0],image_size_h=self.input_image_size[1],image_size_w=self.input_image_size[2],
+													trainable=True,resueable=False,BN_decay=0.99,BN_epsilon=0.00001,anchor_num=15,name="train_rpn/")
+			self.rpn_target_layer=anchor_target_layer(self.small_rpn_train.roi_data,batch=train_batch,img_height=self.input_image_size[1],img_width=self.input_image_size[2],FrcnnParam=self.Work_Param)
 
-			if not use_train_logstd:
-				logstd=logstd*0+self.Logstd
 
-			sample_action = pi + tf.exp(logstd) * tf.random_normal(tf.shape(pi))
-			ac_prob=0.5 * tf.reduce_sum(tf.square((sample_action - pi) / tf.exp(logstd)), axis=-1)+ 0.5 * np.log(2.0 * np.pi) * tf.to_float(tf.shape(sample_action)[-1])+ tf.reduce_sum(logstd, axis=-1)
-			pg_loss,vf_loss,approxkl,clipfrac,_train,pi_train,vf_train=self.loss(pi,vf,logstd,weights,pi_params,vf_params,Regularization='NULL')
+			'''
+			self.small_rpn_val=InceptionV3_facenet_112(batch_seize=val_batch,num_channels=self.input_image_size[0],image_size_h=self.input_image_size[1],image_size_w=self.input_image_size[2],
+													trainable=False,resueable=True,BN_decay=0.99,BN_epsilon=0.00001,anchor_num=15,name="val/")
+			self.small_rpn_test=InceptionV3_facenet_112(batch_seize=test_batch,num_channels=self.input_image_size[0],image_size_h=self.input_image_size[1],image_size_w=self.input_image_size[2],
+													trainable=False,resueable=True,BN_decay=0.99,BN_epsilon=0.00001,anchor_num=15,name="test/")
+			'''
+			#self.merged_train_weights_summary= tf.summary.merge(summaries)
+			#self.summary_placeholders, self.update_ops, self.summary_op = self.setup_summary()
+			for var in tf.trainable_variables():
+				if var.op.name.find('train_rpn') > 0:
+					self.rpn_variable.append(var)
+			train=loss(self.small_rpn_train.rpn_cls_score_reshape,self.small_rpn_train.rpn_bbox_pred,self.rpn_variable)
+			return train
 
-			self.merged_train_weights_summary= tf.summary.merge(summaries)
-			self.summary_placeholders, self.update_ops, self.summary_op = self.setup_summary()
-
-			return s,pi,vf,logstd,sample_action,ac_prob,weights,pg_loss,vf_loss,approxkl,clipfrac,_train,pi_train,vf_train
-
-	def loss(self,pi,vf,logstd,weights,pi_params,vf_params,Regularization='NULL'):
-		pg_loss,vf_loss,approxkl,clipfrac,_train,pi_train,vf_train=loss_fun(self,pi,vf,logstd,weights,pi_params,vf_params,Regularization='NULL')
-		return pg_loss,vf_loss,approxkl,clipfrac,_train,pi_train,vf_train
-
-	
+	def loss(self,rpn_cls,rpn_reg,rpn_params,Regularization='NULL'):
+		train=loss_fun(self,rpn_cls,rpn_reg,rpn_params,Regularization='NULL')
+		return train

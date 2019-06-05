@@ -1,3 +1,8 @@
+FocalLoss=False
+FocalLoss_alpha=2.0
+FocalLoss_beta=1.0
+
+
 ENV_NAME ='half_robot' #'RoboschoolHumanoidFlagrunHarder-v1'  # Environment name
 NUM_EPISODES = 6000  # Number of episodes the agent plays
 STATE_LENGTH = 4  # Number of most recent frames to produce the input to the network
